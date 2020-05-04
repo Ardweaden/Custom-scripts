@@ -31,7 +31,7 @@
         "service": "WMS",
         "url": "https://services.sentinel-hub.com/ogc/wms/616409b9-173e-4012-a580-c0ef4799bc36",
         "preselected": true
-      },
+      }
     ],
     "pins": [
       {
