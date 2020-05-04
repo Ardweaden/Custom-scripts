@@ -6,7 +6,7 @@
       {
         "name": "Many datasets in one instance",
         "service": "WMS",
-        "url": "https://services.sentinel-hub.com/ogc/wms/aa5b3856-4a99-4e67-b818-cc881cbca5af",
+        "url": "https://services.sentinel-hub.com/ogc/wms/42924c6c-257a-4d04-9b8e-36387513a99c",
         "preselected": true
       }
     ]
@@ -15,12 +15,6 @@
     "name": "Another random theme",
     "id": "RANDOMTHEME2",
     "content": [
-      {
-        "name": "Wild fires (S2L2A)",
-        "service": "WMS",
-        "url": "https://services.sentinel-hub.com/ogc/wms/46d070a6-8277-4150-98d7-3b82bcaae569",
-        "preselected": true
-      },
       {
         "name": "Domesticated fires (S2L1C)",
         "service": "WMS",
@@ -41,7 +35,7 @@
         "zoom": 12,
         "datasetId": "L1C",
         "layerId": "NORMALIZED-BURN-RATIO",
-        "visualizationUrl": "https://services.sentinel-hub.com/ogc/wms/8327f786-27aa-4fb1-be7d-5475fab0b739",
+        "visualizationUrl": "https://services.sentinel-hub.com/ogc/wms/146ebe47-2d5e-42a0-953c-910869d1ff72",
         "time": "2016-08-17",
         "evalscript": "",
         "evalscripturl": "",
