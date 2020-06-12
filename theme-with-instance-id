@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Same id as instance 32f02f4c-9c85-4f71-8fc1-553982809e25",
+    "id": "32f02f4c-9c85-4f71-8fc1-553982809e25",
+    "content": [
+      {
+        "name": "Many datasets in one instance",
+        "service": "WMS",
+        "url": "https://services.sentinel-hub.com/ogc/wms/42924c6c-257a-4d04-9b8e-36387513a99c",
+        "preselected": true
+      }
+    ]
+  }  
+]
