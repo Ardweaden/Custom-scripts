@@ -6,7 +6,7 @@
       {
         "name": "Many datasets in one instance",
         "service": "WMS",
-        "url": "https://services.sentinel-hub.com/ogc/wms/42924c6c-257a-4d04-9b8e-36387513a99c",
+        "url": "https://services.sentinel-hub.com/ogc/wms/4e7f012a-5920-47bc-a0f1-7f075152f077",
         "preselected": true
       }
     ]
