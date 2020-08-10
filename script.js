@@ -1,7 +1,7 @@
 //VERSION=3
 function setup() {
   return {
-    input: ["B8A", "B03", "B02","dataMask"],
+    input: ["B12", "B03", "B02","dataMask"],
     output: { bands: 3 }
   };
 }
