@@ -7,5 +7,5 @@ function setup() {
 }
 
 function evaluatePixel(sample) {
-  return [sample.B8A*2.5,sample.B03*2.5,sample.B02*2.5,sample.dataMask];
+  return [sample.B12*2.5,sample.B03*2.5,sample.B02*2.5,sample.dataMask];
 }
