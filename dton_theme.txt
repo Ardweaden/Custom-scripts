@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Wildfires",
+    "id": "WILDFIRES-DTON",
+    "content": [
+      {
+        "name": "Wildires for DToN",
+        "service": "WMS",
+        "url": "https://services.sentinel-hub.com/ogc/wms/9b854d70-7c5f-4575-a3d7-8d3d929b4dde",
+        "preselected": true
+      }
+    ]
+  },
+]
