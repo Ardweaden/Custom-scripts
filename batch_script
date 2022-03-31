@@ -1,0 +1,1026 @@
+
+//VERSION=3
+function setup() {
+  return {
+    input: ['B04','B03','B02'],
+    output: { bands: 1, sampleType: "UINT8" },
+    mosaicking: "ORBIT"
+  };
+}
+
+function updateOutput(outputs, collection) {
+    Object.values(outputs).forEach((output) => {
+        output.bands = 0 + 3 ;
+    });
+}
+function parse_rfc3339(dt, default_h = 0, default_m = 0, default_s = 0) {
+  const regexDateTime =
+    "^([0-9]{4})-([0-9]{2})-([0-9]{2})([Tt]([0-9]{2}):([0-9]{2}):([0-9]{2})(\\.[0-9]+)?)?(([Zz]|([+-])([0-9]{2}):([0-9]{2})))?";
+  const regexDate = "^([0-9]{4})-([0-9]{2})-([0-9]{2})$";
+
+  let result = null;
+
+  try {
+    const g = dt.match(regexDateTime);
+    if (g) {
+      let date = Date.UTC(
+        parseInt(g[1]), //year
+        parseInt(g[2]) - 1, // month
+        parseInt(g[3]), //day
+        parseInt(g[5] || default_h), //hour
+        parseInt(g[6] || default_m), //minute
+        parseInt(g[7] || default_s), // second
+        parseFloat(g[8]) * 1000 || 0 // milisecond
+      );
+
+      //for date-time strings either time zone or Z should be provided
+      if (g[5] !== undefined && g[9] === undefined) {
+        return null;
+      }
+
+      //check if timezone is provided
+      if (g[9] !== undefined && g[9] !== "Z") {
+        //offset in minutes
+        const offset =
+          (parseInt(g[12] || 0) * 60 + parseInt(g[13] || 0)) *
+          (g[11] === "+" ? -1 : 1);
+        //add offset in miliseconds
+        date = date + offset * 60 * 1000;
+      }
+
+      return {
+        type: dt.match(regexDate) ? "date" : "date-time",
+        value: new Date(date).toISOString(),
+      };
+    }
+  } catch (err) {
+    //
+  }
+
+  return result;
+}
+
+class ProcessError extends Error {
+  constructor({ name, message }) {
+    super(message);
+    this.name = name;
+  }
+}
+
+class ValidationError extends Error {
+  constructor({ name, message }) {
+    super(message);
+    this.name = name;
+  }
+}
+
+const VALIDATION_ERRORS = {
+  MISSING_PARAMETER: "MISSING_PARAMETER",
+  WRONG_TYPE: "WRONG_TYPE",
+  NOT_NULL: "NOT_NULL",
+  NOT_ARRAY: "NOT_ARRAY",
+  NOT_INTEGER: "NOT_INTEGER",
+  MIN_VALUE: "MIN_VALUE",
+  MAX_VALUE: "MAX_VALUE",
+};
+
+function validateParameter(arguments) {
+  const {
+    processName,
+    parameterName,
+    value,
+    required = false,
+    nullable = true,
+    allowedTypes,
+    array,
+    integer,
+    min,
+    max,
+  } = arguments;
+
+  if (!!required && value === undefined) {
+    throw new ValidationError({
+      name: VALIDATION_ERRORS.MISSING_PARAMETER,
+      message: `Process ${processName} requires parameter ${parameterName}.`,
+    });
+  }
+
+  if (!nullable && value === null) {
+    throw new ValidationError({
+      name: VALIDATION_ERRORS.NOT_NULL,
+      message: `Value for ${parameterName} should not be null.`,
+    });
+  }
+
+  if (
+    allowedTypes &&
+    Array.isArray(allowedTypes) &&
+    value !== null &&
+    value !== undefined &&
+    !allowedTypes.includes(typeof value)
+  ) {
+    throw new ValidationError({
+      name: VALIDATION_ERRORS.WRONG_TYPE,
+      message: `Value for ${parameterName} is not a ${allowedTypes.join(
+        " or a "
+      )}.`,
+    });
+  }
+
+  if (array && !Array.isArray(value)) {
+    throw new ValidationError({
+      name: VALIDATION_ERRORS.NOT_ARRAY,
+      message: `Value for ${parameterName} is not an array.`,
+    });
+  }
+
+  if (integer && !Number.isInteger(value)) {
+    throw new ValidationError({
+      name: VALIDATION_ERRORS.NOT_INTEGER,
+      message: `Value for ${parameterName} is not an integer.`,
+    });
+  }
+
+  if (min !== undefined && min !== null && value < min) {
+    throw new ValidationError({
+      name: VALIDATION_ERRORS.MIN_VALUE,
+      message: `Value for ${parameterName} must be greater or equal to ${min}.`,
+    });
+  }
+
+  if (max !== undefined && max !== null && value > max) {
+    throw new ValidationError({
+      name: VALIDATION_ERRORS.MAX_VALUE,
+      message: `Value for ${parameterName} must be less or equal to ${max}.`,
+    });
+  }
+
+  return true;
+}
+
+// The MIT License (MIT)
+
+// Copyright (c) 2013-2016 Mikola Lysenko
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+function iota(n) {
+  var result = new Array(n)
+  for(var i=0; i<n; ++i) {
+    result[i] = i
+  }
+  return result
+}
+function isBuffer (obj) {
+  return obj != null && obj.constructor != null &&
+    typeof obj.constructor.isBuffer === 'function' && obj.constructor.isBuffer(obj)
+}
+
+var hasTypedArrays  = ((typeof Float64Array) !== "undefined")
+
+function compare1st(a, b) {
+  return a[0] - b[0]
+}
+
+function order() {
+  var stride = this.stride
+  var terms = new Array(stride.length)
+  var i
+  for(i=0; i<terms.length; ++i) {
+    terms[i] = [Math.abs(stride[i]), i]
+  }
+  terms.sort(compare1st)
+  var result = new Array(terms.length)
+  for(i=0; i<result.length; ++i) {
+    result[i] = terms[i][1]
+  }
+  return result
+}
+
+function compileConstructor(dtype, dimension) {
+  var className = ["View", dimension, "d", dtype].join("")
+  if(dimension < 0) {
+    className = "View_Nil" + dtype
+  }
+  var useGetters = (dtype === "generic")
+
+  if(dimension === -1) {
+    //Special case for trivial arrays
+    var code =
+      "function "+className+"(a){this.data=a;};\
+var proto="+className+".prototype;\
+proto.dtype='"+dtype+"';\
+proto.index=function(){return -1};\
+proto.size=0;\
+proto.dimension=-1;\
+proto.shape=proto.stride=proto.order=[];\
+proto.lo=proto.hi=proto.transpose=proto.step=\
+function(){return new "+className+"(this.data);};\
+proto.get=proto.set=function(){};\
+proto.pick=function(){return null};\
+return function construct_"+className+"(a){return new "+className+"(a);}"
+    var procedure = new Function(code)
+    return procedure()
+  } else if(dimension === 0) {
+    //Special case for 0d arrays
+    var code =
+      "function "+className+"(a,d) {\
+this.data = a;\
+this.offset = d\
+};\
+var proto="+className+".prototype;\
+proto.dtype='"+dtype+"';\
+proto.index=function(){return this.offset};\
+proto.dimension=0;\
+proto.size=1;\
+proto.shape=\
+proto.stride=\
+proto.order=[];\
+proto.lo=\
+proto.hi=\
+proto.transpose=\
+proto.step=function "+className+"_copy() {\
+return new "+className+"(this.data,this.offset)\
+};\
+proto.pick=function "+className+"_pick(){\
+return TrivialArray(this.data);\
+};\
+proto.valueOf=proto.get=function "+className+"_get(){\
+return "+(useGetters ? "this.data.get(this.offset)" : "this.data[this.offset]")+
+"};\
+proto.set=function "+className+"_set(v){\
+return "+(useGetters ? "this.data.set(this.offset,v)" : "this.data[this.offset]=v")+"\
+};\
+return function construct_"+className+"(a,b,c,d){return new "+className+"(a,d)}"
+    var procedure = new Function("TrivialArray", code)
+    return procedure(CACHED_CONSTRUCTORS[dtype][0])
+  }
+
+  var code = ["'use strict'"]
+
+  //Create constructor for view
+  var indices = iota(dimension)
+  var args = indices.map(function(i) { return "i"+i })
+  var index_str = "this.offset+" + indices.map(function(i) {
+        return "this.stride[" + i + "]*i" + i
+      }).join("+")
+  var shapeArg = indices.map(function(i) {
+      return "b"+i
+    }).join(",")
+  var strideArg = indices.map(function(i) {
+      return "c"+i
+    }).join(",")
+  code.push(
+    "function "+className+"(a," + shapeArg + "," + strideArg + ",d){this.data=a",
+      "this.shape=[" + shapeArg + "]",
+      "this.stride=[" + strideArg + "]",
+      "this.offset=d|0}",
+    "var proto="+className+".prototype",
+    "proto.dtype='"+dtype+"'",
+    "proto.dimension="+dimension)
+
+  //view.size:
+  code.push("Object.defineProperty(proto,'size',{get:function "+className+"_size(){\
+return "+indices.map(function(i) { return "this.shape["+i+"]" }).join("*"),
+"}})")
+
+  //view.order:
+  if(dimension === 1) {
+    code.push("proto.order=[0]")
+  } else {
+    code.push("Object.defineProperty(proto,'order',{get:")
+    if(dimension < 4) {
+      code.push("function "+className+"_order(){")
+      if(dimension === 2) {
+        code.push("return (Math.abs(this.stride[0])>Math.abs(this.stride[1]))?[1,0]:[0,1]}})")
+      } else if(dimension === 3) {
+        code.push(
+"var s0=Math.abs(this.stride[0]),s1=Math.abs(this.stride[1]),s2=Math.abs(this.stride[2]);\
+if(s0>s1){\
+if(s1>s2){\
+return [2,1,0];\
+}else if(s0>s2){\
+return [1,2,0];\
+}else{\
+return [1,0,2];\
+}\
+}else if(s0>s2){\
+return [2,0,1];\
+}else if(s2>s1){\
+return [0,1,2];\
+}else{\
+return [0,2,1];\
+}}})")
+      }
+    } else {
+      code.push("ORDER})")
+    }
+  }
+
+  //view.set(i0, ..., v):
+  code.push(
+"proto.set=function "+className+"_set("+args.join(",")+",v){")
+  if(useGetters) {
+    code.push("return this.data.set("+index_str+",v)}")
+  } else {
+    code.push("return this.data["+index_str+"]=v}")
+  }
+
+  //view.get(i0, ...):
+  code.push("proto.get=function "+className+"_get("+args.join(",")+"){")
+  if(useGetters) {
+    code.push("return this.data.get("+index_str+")}")
+  } else {
+    code.push("return this.data["+index_str+"]}")
+  }
+
+  //view.index:
+  code.push(
+    "proto.index=function "+className+"_index(", args.join(), "){return "+index_str+"}")
+
+  //view.hi():
+  code.push("proto.hi=function "+className+"_hi("+args.join(",")+"){return new "+className+"(this.data,"+
+    indices.map(function(i) {
+      return ["(typeof i",i,"!=='number'||i",i,"<0)?this.shape[", i, "]:i", i,"|0"].join("")
+    }).join(",")+","+
+    indices.map(function(i) {
+      return "this.stride["+i + "]"
+    }).join(",")+",this.offset)}")
+
+  //view.lo():
+  var a_vars = indices.map(function(i) { return "a"+i+"=this.shape["+i+"]" })
+  var c_vars = indices.map(function(i) { return "c"+i+"=this.stride["+i+"]" })
+  code.push("proto.lo=function "+className+"_lo("+args.join(",")+"){var b=this.offset,d=0,"+a_vars.join(",")+","+c_vars.join(","))
+  for(var i=0; i<dimension; ++i) {
+    code.push(
+"if(typeof i"+i+"==='number'&&i"+i+">=0){\
+d=i"+i+"|0;\
+b+=c"+i+"*d;\
+a"+i+"-=d}")
+  }
+  code.push("return new "+className+"(this.data,"+
+    indices.map(function(i) {
+      return "a"+i
+    }).join(",")+","+
+    indices.map(function(i) {
+      return "c"+i
+    }).join(",")+",b)}")
+
+  //view.step():
+  code.push("proto.step=function "+className+"_step("+args.join(",")+"){var "+
+    indices.map(function(i) {
+      return "a"+i+"=this.shape["+i+"]"
+    }).join(",")+","+
+    indices.map(function(i) {
+      return "b"+i+"=this.stride["+i+"]"
+    }).join(",")+",c=this.offset,d=0,ceil=Math.ceil")
+  for(var i=0; i<dimension; ++i) {
+    code.push(
+"if(typeof i"+i+"==='number'){\
+d=i"+i+"|0;\
+if(d<0){\
+c+=b"+i+"*(a"+i+"-1);\
+a"+i+"=ceil(-a"+i+"/d)\
+}else{\
+a"+i+"=ceil(a"+i+"/d)\
+}\
+b"+i+"*=d\
+}")
+  }
+  code.push("return new "+className+"(this.data,"+
+    indices.map(function(i) {
+      return "a" + i
+    }).join(",")+","+
+    indices.map(function(i) {
+      return "b" + i
+    }).join(",")+",c)}")
+
+  //view.transpose():
+  var tShape = new Array(dimension)
+  var tStride = new Array(dimension)
+  for(var i=0; i<dimension; ++i) {
+    tShape[i] = "a[i"+i+"]"
+    tStride[i] = "b[i"+i+"]"
+  }
+  code.push("proto.transpose=function "+className+"_transpose("+args+"){"+
+    args.map(function(n,idx) { return n + "=(" + n + "===undefined?" + idx + ":" + n + "|0)"}).join(";"),
+    "var a=this.shape,b=this.stride;return new "+className+"(this.data,"+tShape.join(",")+","+tStride.join(",")+",this.offset)}")
+
+  //view.pick():
+  code.push("proto.pick=function "+className+"_pick("+args+"){var a=[],b=[],c=this.offset")
+  for(var i=0; i<dimension; ++i) {
+    code.push("if(typeof i"+i+"==='number'&&i"+i+">=0){c=(c+this.stride["+i+"]*i"+i+")|0}else{a.push(this.shape["+i+"]);b.push(this.stride["+i+"])}")
+  }
+  code.push("var ctor=CTOR_LIST[a.length+1];return ctor(this.data,a,b,c)}")
+
+  //Add return statement
+  code.push("return function construct_"+className+"(data,shape,stride,offset){return new "+className+"(data,"+
+    indices.map(function(i) {
+      return "shape["+i+"]"
+    }).join(",")+","+
+    indices.map(function(i) {
+      return "stride["+i+"]"
+    }).join(",")+",offset)}")
+
+  //Compile procedure
+  var procedure = new Function("CTOR_LIST", "ORDER", code.join("\n"))
+  return procedure(CACHED_CONSTRUCTORS[dtype], order)
+}
+
+function arrayDType(data) {
+  if(isBuffer(data)) {
+    return "buffer"
+  }
+  if(hasTypedArrays) {
+    switch(Object.prototype.toString.call(data)) {
+      case "[object Float64Array]":
+        return "float64"
+      case "[object Float32Array]":
+        return "float32"
+      case "[object Int8Array]":
+        return "int8"
+      case "[object Int16Array]":
+        return "int16"
+      case "[object Int32Array]":
+        return "int32"
+      case "[object Uint8Array]":
+        return "uint8"
+      case "[object Uint16Array]":
+        return "uint16"
+      case "[object Uint32Array]":
+        return "uint32"
+      case "[object Uint8ClampedArray]":
+        return "uint8_clamped"
+      case "[object BigInt64Array]":
+        return "bigint64"
+      case "[object BigUint64Array]":
+        return "biguint64"
+    }
+  }
+  if(Array.isArray(data)) {
+    return "array"
+  }
+  return "generic"
+}
+
+var CACHED_CONSTRUCTORS = {
+  "float32":[],
+  "float64":[],
+  "int8":[],
+  "int16":[],
+  "int32":[],
+  "uint8":[],
+  "uint16":[],
+  "uint32":[],
+  "array":[],
+  "uint8_clamped":[],
+  "bigint64": [],
+  "biguint64": [],
+  "buffer":[],
+  "generic":[]
+}
+
+;(function() {
+  for(var id in CACHED_CONSTRUCTORS) {
+    CACHED_CONSTRUCTORS[id].push(compileConstructor(id, -1))
+  }
+});
+
+function ndarray(data, shape, stride, offset) {
+  if(data === undefined) {
+    var ctor = CACHED_CONSTRUCTORS.array[0]
+    return ctor([])
+  } else if(typeof data === "number") {
+    data = [data]
+  }
+  if(shape === undefined) {
+    shape = [ data.length ]
+  }
+  var d = shape.length
+  if(stride === undefined) {
+    stride = new Array(d)
+    for(var i=d-1, sz=1; i>=0; --i) {
+      stride[i] = sz
+      sz *= shape[i]
+    }
+  }
+  if(offset === undefined) {
+    offset = 0
+    for(var i=0; i<d; ++i) {
+      if(stride[i] < 0) {
+        offset -= (shape[i]-1)*stride[i]
+      }
+    }
+  }
+  var dtype = arrayDType(data)
+  var ctor_list = CACHED_CONSTRUCTORS[dtype]
+  while(ctor_list.length <= d+1) {
+    ctor_list.push(compileConstructor(dtype, ctor_list.length-1))
+  }
+  var ctor = ctor_list[d+1]
+  return ctor(data, shape, stride, offset)
+}
+
+// ------------------------------------------------------------------------------------------------------
+
+function convert_to_1d_array(ndarray) {
+    const arr = []
+    for (let i = 0; i < ndarray.shape[0]; i++) {
+        arr.push(ndarray.get(i))
+    }
+    return arr
+}
+
+function extractValues(obj) {
+    const values = [];
+    for (var key in obj) {
+        values.push(obj[key]);
+    }
+    return values;
+}
+
+function fill(arr, val) {
+    const size = arr.length
+    for (let i = 0; i < size; i++) {
+        arr[i] = val
+    }
+    return arr
+}
+
+function isNotSubarray(ndarray, shape) {
+    let length = 1;
+    for (let i = 0; i < shape.length; i++) {
+        length *= shape[i]
+    }
+    return length === ndarray.data.length
+}
+
+function flattenToNativeArray(ndarray) {
+    const shape = ndarray.shape
+
+    if (isNotSubarray(ndarray, shape)) {
+        return ndarray.data
+    }
+
+    const cumulatives = fill(shape.slice(), 0);
+    const coord = shape.slice();
+    const arr = []
+    let total = 1;
+
+    for (let d = shape.length - 1; d >= 0; d--) {
+        cumulatives[d] = total;
+        total *= shape[d];
+    }
+    for (let i = 0; i < total; i++) {
+        for (let d = shape.length - 1; d >= 0; d--) {
+            coord[d] = Math.floor(i / cumulatives[d]) % shape[d];
+        }
+        arr.push(ndarray.get.apply(ndarray, coord))
+    }
+    return arr
+}
+class DataCube {
+    // data: SH samples or an ndarray
+    // bands_dimension_name: name  to use for the default bands dimension
+    // temporal_dimension_name: name to use for the default temporal dimension
+    // fromSamples: boolean, if true `data` is expected to be in format as argument `samples` passed to `evaluatePixel` in an evalscript, else ndarray
+    constructor(data, bands_dimension_name, temporal_dimension_name, fromSamples) {
+        this.TEMPORAL = "temporal"
+        this.BANDS = "bands"
+        this.OTHER = "other"
+        this.bands_dimension_name = bands_dimension_name;
+        this.temporal_dimension_name = temporal_dimension_name;
+        this.dimensions = [{
+            name: this.temporal_dimension_name,
+            labels: [],
+            type: this.TEMPORAL
+        }, {
+            name: this.bands_dimension_name,
+            labels: [],
+            type: this.BANDS
+        }]
+        if (fromSamples) {
+            this.data = this.makeArrayFromSamples(data)
+        } else {
+            this.data = data;
+        }
+    }
+
+    getDimensionByName(name) {
+        return this.dimensions.find(d => d.name === name)
+    }
+
+    // Converts `samples` object to ndarray of shape [number of samples, number of bands]
+    // `samples` is eqivalent to the first argument of `evaluatePixel` method in an evalscript
+    // Either object or array of objects (non-temporal and temporal scripts respectively)
+    makeArrayFromSamples(samples) {
+        if (Array.isArray(samples)) {
+            if (samples.length === 0) {
+                return ndarray([], [0, 0])
+            }
+            this._setDimensionLabelsIfEmpty(this.bands_dimension_name, Object.keys(samples[0]))
+            let newData = []
+            for (let entry of samples) {
+                newData = newData.concat(extractValues(entry))
+            }
+            return ndarray(newData, [samples.length, extractValues(samples[0]).length])
+        } else {
+            this._setDimensionLabelsIfEmpty(this.bands_dimension_name, Object.keys(samples))
+            const newData = Object.values(samples)
+            return ndarray(newData, [1, newData.length])
+        }
+    }
+
+    _setDimensionLabelsIfEmpty(dimension, labels) {
+        if (this.getDimensionByName(dimension).labels.length === 0) {
+            this.getDimensionByName(dimension).labels = labels
+        }
+    }
+
+    getBandIndices(bands) {
+        const bandsLabels = this.getDimensionByName(this.bands_dimension_name).labels
+        const indices = []
+        for (let band of bands) {
+            const ind = bandsLabels.indexOf(band)
+            if (ind !== -1) {
+                indices.push(ind)
+            }
+        }
+        return indices
+    }
+
+    filterBands(bands) {
+        const indices = this.getBandIndices(bands);
+        const axis = this.dimensions.findIndex((e) => e.name === this.bands_dimension_name);
+        this._filter(axis, indices);
+        this.getDimensionByName(this.bands_dimension_name).labels =
+            this.getDimensionByName(this.bands_dimension_name).labels.filter((lab) =>
+                bands.includes(lab)
+            );
+    }
+
+    removeDimension(dimension) {
+        const idx = this.dimensions.findIndex(d => d.name === dimension);
+        this.dimensions = this.dimensions.filter(d => d.name !== dimension);
+        const newDataShape = this.data.shape;
+        newDataShape.splice(idx, 1);
+        this.data = ndarray(this.data.data, newDataShape)
+    }
+
+    addDimension(name, label, type) {
+        this._addDimension(0)
+        this.dimensions.unshift({
+            name: name,
+            labels: [label],
+            type: type
+        })
+    }
+
+    clone() {
+        const copy = new DataCube(ndarray(this.data.data.slice(), this.data.shape), this.bands_dimension_name, this.temporal_dimension_name)
+        const newDimensions = []
+        for (let dim of this.dimensions) {
+            newDimensions.push({
+                name: dim.name,
+                labels: dim.labels.slice(),
+                type: dim.type
+            })
+        }
+        copy.dimensions = newDimensions
+        return copy
+    }
+
+    flattenToArray() {
+        if ((!this.data.shape || this.data.shape.length === 0) && this.data.data.length === 1) {
+            // We have a scalar.
+            return this.data.data[0]
+        }
+        return flattenToNativeArray(this.data)
+    }
+
+    encodeData() {
+        const shape = this.getDataShape();
+        const flattenedData = this.flattenToArray();
+        return [...shape, ...flattenedData];
+    }
+
+    // reducer: function, accepts `data` (labeled array) and `context` (any)
+    // dimension: string, name of one of the existing dimensions
+    reduceByDimension(reducer, dimension, context) {
+        const data = this.data
+        const axis = this.dimensions.findIndex(e => e.name === dimension)
+        const labels = this.dimensions[axis].labels
+        const allCoords = this._iterateCoords(data.shape.slice(), [axis]) // get the generator, axis of the selected dimension is `null` (entire dimension is selected)
+        const newValues = []
+
+        for (let coord of allCoords) {
+            const dataToReduce = convert_to_1d_array(data.pick.apply(data, coord)) // Convert selection to a native array
+            dataToReduce.labels = labels // Add dimension labels to array
+            const newVals = reducer({
+                data: dataToReduce,
+                context: context
+            })
+            newValues.push(newVals)
+        }
+
+        const newShape = data.shape.slice()
+        newShape.splice(axis, 1) // The selected dimension is removed
+        this.data = ndarray(newValues, newShape)
+        this.dimensions.splice(axis, 1) // Remove dimension information
+    }
+
+    getDataShape() {
+        return this.data.shape;
+    }
+
+    _addDimension(axis) {
+        // new dimension is added before the axis
+        this.data.shape.splice(axis, 0, 1)
+        this.data = ndarray(this.data.data, this.data.shape)
+    }
+
+    // axis: integer, index of the dimension to filter
+    // coordArr: array of indices of the dimension to keep
+    _filter(axis, coordArr) {
+        const length = this.data.data.length
+        const stride = this.data.stride[axis]
+        const axisSize = this.data.shape[axis]
+        const newData = []
+
+        for (let i = 0; i < length; i++) {
+            if (coordArr.includes(Math.floor(i / stride) % axisSize)) {
+                newData.push(this.data.data[i])
+            }
+        }
+
+        const newShape = this.data.shape
+        newShape[axis] = coordArr.length
+        this.data = ndarray(newData, newShape)
+    }
+
+    // process: function, accepts `data` (labeled array) and `context` (any)
+    apply(process, context) {
+        const allCoords = this._iterateCoords(this.data.shape)
+        for (let coords of allCoords) {
+            this.data.set(...coords, process({
+                "x": this.data.get.apply(this.data, coords),
+                context: context
+            }))
+        }
+    }
+
+    // Generator that visits all coordinates of array with `shape`, keeping nullAxes `null`
+    // shape: sizes of dimensions
+    // nullAxes: array with axes that should be kept null
+    * _iterateCoords(shape, nullAxes = []) {
+        const cumulatives = fill(shape.slice(), 0);
+        const coords = shape.slice();
+        for (let axis of nullAxes) {
+            shape[axis] = 1
+            coords[axis] = null
+        }
+        let total = 1;
+        for (let d = shape.length - 1; d >= 0; d--) {
+            cumulatives[d] = total;
+            total *= shape[d];
+        }
+        for (let i = 0; i < total; i++) {
+            for (let d = shape.length - 1; d >= 0; d--) {
+                if (coords[d] === null) {
+                    continue
+                }
+                coords[d] = Math.floor(i / cumulatives[d]) % shape[d];
+            }
+            yield coords
+        }
+    }
+}
+
+	function reduce_dimension_482c0d41106f44629bfbfeb605a3400c(arguments) {
+
+	function reduce_dimension(arguments) {
+	    function reducer(arguments) {
+    
+			function mean_cb53854a93f24acb9dac1cd25ae01545(arguments) {
+					function mean(arguments) {
+					  const { data, ignore_nodata = true } = arguments;
+
+					  validateParameter({
+					    processName: "mean",
+					    parameterName: "data",
+					    value: data,
+					    required: true,
+					    array: true,
+					  });
+
+					  validateParameter({
+					    processName: "mean",
+					    parameterName: "ignore_nodata",
+					    value: ignore_nodata,
+					    nullable: false,
+					    allowedTypes: ["boolean"],
+					  });
+
+					  let sum = 0;
+					  let el_num = 0;
+
+					  for (let x of data) {
+					    validateParameter({
+					      processName: "mean",
+					      parameterName: "element of data",
+					      value: x,
+					      allowedTypes: ["number"],
+					    });
+
+					    if (x === null) {
+					      if (ignore_nodata) {
+					        continue;
+					      } else {
+					        return null;
+					      }
+					    }
+
+					    sum += x;
+					    el_num++;
+					  }
+
+					  if (el_num === 0) {
+					    return null;
+					  }
+
+					  return sum / el_num;
+					}
+
+			    return mean(arguments)
+			}
+
+	    		let node_1 = mean_cb53854a93f24acb9dac1cd25ae01545({"data": arguments.data})
+	        return node_1;
+	    }
+
+	    function reduce_dimension(arguments) {
+	  const { data, dimension, reducer, context = null } = arguments;
+
+	  validateParameter({
+	    processName: "reduce_dimension",
+	    parameterName: "data",
+	    value: data,
+	    nullable: false,
+	    required: true,
+	  });
+
+	  validateParameter({
+	    processName: "reduce_dimension",
+	    parameterName: "dimension",
+	    value: dimension,
+	    nullable: false,
+	    required: true,
+	    allowedTypes: ["string"],
+	  });
+
+	  validateParameter({
+	    processName: "reduce_dimension",
+	    parameterName: "reducer",
+	    value: reducer,
+	    nullable: false,
+	    required: true,
+	  });
+
+	  const newData = data.clone();
+	  newData.reduceByDimension(reducer, dimension, context);
+	  return newData;
+	}
+
+	    arguments['reducer'] = reducer;
+	    return reduce_dimension(arguments);  
+	}
+
+	    return reduce_dimension(arguments)
+	}
+
+
+	function apply_0cca645c393b4cbf9f0883bfc6a3f1dd(arguments) {
+
+	function apply(arguments) {  
+
+	   function process(arguments) {
+    
+			function linear_scale_range_376357aa8dd44b2794ac0785e2b2340e(arguments) {
+					function linear_scale_range(arguments) {
+					  const { x, inputMin, inputMax, outputMin = 0, outputMax = 1 } = arguments;
+
+					  validateParameter({
+					    processName: "linear_scale_range",
+					    parameterName: "x",
+					    value: x,
+					    required: true,
+					    allowedTypes: ["number"],
+					  });
+
+					  if (x === null) {
+					    return null;
+					  }
+
+					  validateParameter({
+					    processName: "linear_scale_range",
+					    parameterName: "inputMin",
+					    value: inputMin,
+					    required: true,
+					    nullable: false,
+					    allowedTypes: ["number"],
+					  });
+
+					  validateParameter({
+					    processName: "linear_scale_range",
+					    parameterName: "inputMax",
+					    value: inputMax,
+					    required: true,
+					    nullable: false,
+					    allowedTypes: ["number"],
+					  });
+
+					  validateParameter({
+					    processName: "linear_scale_range",
+					    parameterName: "outputMin",
+					    value: outputMin,
+					    allowedTypes: ["number"],
+					  });
+
+					  validateParameter({
+					    processName: "linear_scale_range",
+					    parameterName: "outputMax",
+					    value: outputMax,
+					    allowedTypes: ["number"],
+					  });
+
+					  //The given number in x is clipped to the bounds specified in inputMin and inputMax
+					  const clippedValue = Math.min(inputMax, Math.max(x, inputMin));
+
+					  return (
+					    ((clippedValue - inputMin) / (inputMax - inputMin)) *
+					      (outputMax - outputMin) +
+					    outputMin
+					  );
+					}
+
+			    return linear_scale_range(arguments)
+			}
+
+	    		let node_1 = linear_scale_range_376357aa8dd44b2794ac0785e2b2340e({"inputMax": 1, "inputMin": 0, "outputMax": 255, "x": arguments.x})
+	        return node_1;
+	    }
+
+	    function apply(arguments) {
+	  const { data, process, context = null } = arguments;
+
+	  validateParameter({
+	    processName: "apply",
+	    parameterName: "data",
+	    value: data,
+	    nullable: false,
+	    required: true,
+	  });
+
+	  validateParameter({
+	    processName: "apply",
+	    parameterName: "process",
+	    value: process,
+	    nullable: false,
+	    required: true,
+	  });
+
+	  const newData = data.clone();
+	  newData.apply(process, context);
+	  return newData;
+	}
+
+	    arguments['process'] = process;
+	    return apply(arguments);
+
+	}
+
+	    return apply(arguments)
+	}
+
+function evaluatePixel(samples) {
+    let node_1 = new DataCube(samples, 'bands', 't', true)
+    	let node_2 = reduce_dimension_482c0d41106f44629bfbfeb605a3400c({"data": node_1, "dimension": "t", "reducer": {"process_graph": {"1": {"arguments": {"data": {"from_parameter": "data"}}, "process_id": "mean", "result": true}}}})
+		let node_4 = apply_0cca645c393b4cbf9f0883bfc6a3f1dd({"data": node_2, "process": {"process_graph": {"1": {"arguments": {"inputMax": 1, "inputMin": 0, "outputMax": 255, "x": {"from_parameter": "x"}}, "process_id": "linear_scale_range", "result": true}}}})
+    return node_4.flattenToArray()
+}
